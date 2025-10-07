@@ -21,7 +21,7 @@ static GOptionEntry option_entries[] = {{"verbose", 'v', 0, G_OPTION_ARG_NONE,
 
 typedef struct app {
   GMainLoop *loop;
-  GDBusConnection *conn;
+  BtMonitorState *bt_state;
   int ret;
 } App;
 
@@ -36,15 +36,15 @@ static gboolean app_signal(gpointer user_data) {
 static void app_run(App *app) {
   GError *error = NULL;
 
-  app->conn = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
-  if (!app->conn) {
+  GDBusConnection *conn = g_bus_get_sync(G_BUS_TYPE_SYSTEM, NULL, &error);
+  if (!conn) {
     GERR("Failed to connect to system bus: %s", error->message);
     g_error_free(error);
     app->ret = 1;
     return;
   }
 
-  bt_monitor_init(app->conn);
+  app->bt_state = bt_monitor_init(conn, NULL, NULL, NULL);
 
   guint sigtrm = g_unix_signal_add(SIGTERM, app_signal, app);
   guint sigint = g_unix_signal_add(SIGINT, app_signal, app);
@@ -56,7 +56,7 @@ static void app_run(App *app) {
   g_source_remove(sigtrm);
   g_source_remove(sigint);
   g_main_loop_unref(app->loop);
-  g_object_unref(app->conn);
+  bt_monitor_free(app->bt_state);
 }
 
 static gboolean parse_options(int argc, char *argv[]) {
