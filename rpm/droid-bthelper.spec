@@ -11,6 +11,7 @@ BuildRequires: cmake
 BuildRequires: pkgconfig
 BuildRequires: pkgconfig(glib-2.0)
 BuildRequires: pkgconfig(libglibutil)
+BuildRequires: pkgconfig(libgbinder)
 
 Requires(post): systemd
 Requires(postun): systemd
