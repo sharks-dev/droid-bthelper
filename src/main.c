@@ -9,6 +9,7 @@
 #include <gio/gio.h>
 #include <glib-unix.h>
 
+#include "audio-hal.h"
 #include "bt-monitor.h"
 
 // Command line options
@@ -21,6 +22,7 @@ static GOptionEntry option_entries[] = {{"verbose", 'v', 0, G_OPTION_ARG_NONE,
 
 typedef struct app {
   GMainLoop *loop;
+  AudioHalState *hal_state;
   BtMonitorState *bt_state;
   int ret;
 } App;
@@ -44,7 +46,9 @@ static void app_run(App *app) {
     return;
   }
 
-  app->bt_state = bt_monitor_init(conn, NULL, NULL, NULL);
+  app->hal_state = audio_hal_init();
+  app->bt_state =
+      bt_monitor_init(conn, audio_hal_notify_connected, app->hal_state);
 
   guint sigtrm = g_unix_signal_add(SIGTERM, app_signal, app);
   guint sigint = g_unix_signal_add(SIGINT, app_signal, app);
@@ -57,6 +61,7 @@ static void app_run(App *app) {
   g_source_remove(sigint);
   g_main_loop_unref(app->loop);
   bt_monitor_free(app->bt_state);
+  audio_hal_free(app->hal_state);
 }
 
 static gboolean parse_options(int argc, char *argv[]) {

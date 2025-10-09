@@ -51,11 +51,11 @@ static void bt_connection_status(BtMonitorState *state,
                           g_strdup(addr));
     }
 
-    if (!was_connected && state->on_connected)
-      state->on_connected(addr, state->user_data);
+    if (!was_connected && state->on_connection)
+      state->on_connection(addr, TRUE, state->user_data);
   } else {
-    if (was_connected && state->on_disconnected)
-      state->on_disconnected(addr, state->user_data);
+    if (was_connected && state->on_connection)
+      state->on_connection(addr, FALSE, state->user_data);
 
     // Remove from object mapping when disconnecting
     if (object_path)
@@ -116,7 +116,7 @@ static void bt_update_device_state(BtMonitorState *state,
       while (g_variant_iter_next(&iter, "&s", &uuid) && !headset) {
         headset = (g_ascii_strcasecmp(uuid, UUID_HSP) == 0 ||
                    g_ascii_strcasecmp(uuid, UUID_HFP) == 0);
-        GINFO("  UUID: %s -> %d", uuid, headset);
+        // GINFO("  UUID: %s -> %d", uuid, headset);
       }
       g_variant_unref(v);
     }
@@ -217,8 +217,7 @@ static void on_interfaces_removed(GDBusConnection *conn,
 }
 
 BtMonitorState *bt_monitor_init(GDBusConnection *conn,
-                                BtMonitorOnConnected on_connected,
-                                BtMonitorOnDisconnected on_disconnected,
+                                BtMonitorOnConnection on_connection,
                                 gpointer user_data) {
   BtMonitorState *state = g_new(BtMonitorState, 1);
   state->conn = conn;
@@ -226,8 +225,7 @@ BtMonitorState *bt_monitor_init(GDBusConnection *conn,
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
   state->object_to_address =
       g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-  state->on_connected = on_connected;
-  state->on_disconnected = on_disconnected;
+  state->on_connection = on_connection;
   state->user_data = user_data;
 
   g_dbus_connection_signal_subscribe(
