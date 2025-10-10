@@ -1,6 +1,6 @@
 Name: droid-bthelper
 
-Version: 0.2.0
+Version: 0.2.1
 Release: 1
 Summary: Droid Bluetooth Helper service
 License: BSD-3-Clause
@@ -41,6 +41,7 @@ systemctl daemon-reload || :
 
 %post
 systemctl daemon-reload || :
+systemctl try-restart %{name} || :
 
 %files
 %defattr(-,root,root,-)
