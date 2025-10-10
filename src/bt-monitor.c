@@ -240,7 +240,36 @@ BtMonitorState *bt_monitor_init(GDBusConnection *conn,
       conn, BLUEZ_SERVICE, DBUS_OBJECT_MANAGER_INTERFACE, "InterfacesRemoved",
       NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, on_interfaces_removed, state, NULL);
 
-  GINFO("Monitoring BlueZ devices...");
+  GINFO("Iterate through all existing Bluetooth devices to check connection "
+        "status");
+  GError *error = NULL;
+  GVariant *reply = g_dbus_connection_call_sync(
+      conn, BLUEZ_SERVICE, "/", DBUS_OBJECT_MANAGER_INTERFACE,
+      "GetManagedObjects", NULL, G_VARIANT_TYPE("(a{oa{sa{sv}}})"),
+      G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
+
+  if (error) {
+    GWARN("Failed to get managed objects: %s", error->message);
+    g_error_free(error);
+  } else {
+    GVariantIter iter;
+    GVariant *objects;
+    g_variant_get(reply, "(@a{oa{sa{sv}}})", &objects);
+    g_variant_iter_init(&iter, objects);
+    const gchar *object_path;
+    GVariant *ifaces;
+    while (
+        g_variant_iter_next(&iter, "{&o@a{sa{sv}}}", &object_path, &ifaces)) {
+      if (g_variant_lookup_value(ifaces, DEVICE_INTERFACE, NULL)) {
+        bt_update_device_state(state, object_path);
+      }
+      g_variant_unref(ifaces);
+    }
+    g_variant_unref(objects);
+    g_variant_unref(reply);
+  }
+
+  GINFO("Monitoring Bluetooth devices...");
   return state;
 }
 
