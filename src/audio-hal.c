@@ -9,6 +9,10 @@
 #include <gutil_log.h>
 #include <string.h>
 
+// Retry settings
+#define MAX_INIT_RETRIES 60
+#define INIT_RETRY_SLEEP_SEC 3
+
 #define AUDIO_BINDER_DEVICE "/dev/hwbinder"
 
 #define AUDIO_FACTORY_INTERFACE "android.hardware.audio@7.0::IDevicesFactory"
@@ -182,7 +186,7 @@ void audio_hal_notify_connected(const char *address, gboolean connected,
           connected ? "connected" : "disconnected", address);
 }
 
-AudioHalState *audio_hal_init(void) {
+static AudioHalState *audio_hal_init_worker(void) {
   AudioHalState *state = g_new(AudioHalState, 1);
   memset(state, 0, sizeof(*state));
 
@@ -217,6 +221,21 @@ AudioHalState *audio_hal_init(void) {
 
   GINFO("Audio HAL initialized");
   return state;
+}
+
+AudioHalState *audio_hal_init(void) {
+  for (int i = 0; i < MAX_INIT_RETRIES; ++i) {
+    GINFO("Trying to initialize Audio HAL (attempt %d/%d)", i + 1,
+          MAX_INIT_RETRIES);
+    AudioHalState *state = audio_hal_init_worker();
+    if (state)
+      return state;
+
+    if (i < MAX_INIT_RETRIES - 1)
+      sleep(INIT_RETRY_SLEEP_SEC);
+  }
+  GINFO("Failed to initialize Audio HAL after %d attempts", MAX_INIT_RETRIES);
+  return NULL;
 }
 
 void audio_hal_free(AudioHalState *state) {
