@@ -1,6 +1,6 @@
 Name: droid-bthelper
 
-Version: 0.1.0
+Version: 0.2.0
 Release: 1
 Summary: Droid Bluetooth Helper service
 License: BSD-3-Clause
