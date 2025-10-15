@@ -85,7 +85,7 @@ static void bt_update_device_state(BtMonitorState *state,
   GVariant *props;
   g_variant_get(reply, "(@a{sv})", &props);
 
-  gboolean connected = FALSE, resolved = FALSE, headset = FALSE;
+  gboolean connected = FALSE, headset = FALSE;
   const gchar *address = NULL;
   GVariant *v;
 
@@ -95,19 +95,13 @@ static void bt_update_device_state(BtMonitorState *state,
     g_variant_unref(v);
   }
 
-  v = g_variant_lookup_value(props, "ServicesResolved", NULL);
-  if (v) {
-    resolved = g_variant_get_boolean(v);
-    g_variant_unref(v);
-  }
-
   v = g_variant_lookup_value(props, "Address", NULL);
   if (v) {
     address = g_variant_get_string(v, NULL);
     g_variant_unref(v);
   }
 
-  if (connected && resolved) {
+  if (connected) {
     v = g_variant_lookup_value(props, "UUIDs", NULL);
     if (v) {
       GVariantIter iter;
@@ -122,11 +116,11 @@ static void bt_update_device_state(BtMonitorState *state,
     }
   }
 
-  gboolean status = connected && resolved && headset;
+  gboolean status = connected && headset;
 
-  GINFO("Device %s (%s): connected=%s, services=%s headset=%s", object_path,
+  GINFO("Device %s (%s): connected=%s, headset=%s", object_path,
         address ? address : "unknown", connected ? "true" : "false",
-        resolved ? "resolved" : "unresolved", headset ? "yes" : "not");
+        headset ? "yes" : "not");
 
   if (address) {
     bt_connection_status(state, object_path, address, status);
@@ -157,8 +151,7 @@ static void on_properties_changed(GDBusConnection *conn,
   if (g_strcmp0(iface, DEVICE_INTERFACE) == 0) {
     // Check if any property we care about has changed
     if (g_variant_lookup_value(changed, "Connected", NULL) ||
-        g_variant_lookup_value(changed, "UUIDs", NULL) ||
-        g_variant_lookup_value(changed, "ServicesResolved", NULL)) {
+        g_variant_lookup_value(changed, "UUIDs", NULL)) {
       bt_update_device_state(state, object_path);
     }
   }
