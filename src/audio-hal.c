@@ -15,9 +15,9 @@
 
 #define AUDIO_BINDER_DEVICE "/dev/hwbinder"
 
-#define AUDIO_FACTORY_INTERFACE "android.hardware.audio@7.0::IDevicesFactory"
+#define AUDIO_FACTORY_INTERFACE "android.hardware.audio@6.0::IDevicesFactory"
 #define AUDIO_DEVICES_FACTORY_SERVICE AUDIO_FACTORY_INTERFACE "/default"
-#define AUDIO_DEVICE_INTERFACE "android.hardware.audio@7.0::IDevice"
+#define AUDIO_DEVICE_INTERFACE "android.hardware.audio@6.0::IDevice"
 
 #define AUDIO_DEVICE_TYPE_OUT "AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET"
 #define AUDIO_DEVICE_TYPE_IN "AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET"
