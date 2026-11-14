@@ -19,56 +19,67 @@
 #define AUDIO_DEVICES_FACTORY_SERVICE AUDIO_FACTORY_INTERFACE "/default"
 #define AUDIO_DEVICE_INTERFACE "android.hardware.audio@6.0::IDevice"
 
-#define AUDIO_DEVICE_TYPE_OUT "AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET"
-#define AUDIO_DEVICE_TYPE_IN "AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET"
+// android.hardware.audio.common@6.0::AudioDevice values (bitfield enum)
+#define AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET 0x20u
+#define AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET 0x80000008u
 #define AUDIO_HARDWARE_MODULE_ID_PRIMARY "primary"
 
-// Transaction codes
+// Transaction codes (IDevice@6.0: setConnectedState is the 22nd method)
 #define IDEVICES_FACTORY_OPEN_DEVICE 1 // Transaction code for openDevice method
 #define IDEVICE_SET_CONNECTED_STATE 22
 
 // result codes
 #define RESULT_OK 0
 
-// DeviceAddress structure matching HIDL layout
+// android.hardware.audio.common@6.0::DeviceAddress, HIDL memory layout:
+//   AudioDevice device;          // uint32, offset 0
+//   union { uint8_t mac[6]; uint8_t ipv4[4]; struct { int32 card, device; } alsa; }
+//                                // 8 bytes, offset 4
+//   string busAddress;           // offset 16
+//   string rSubmixAddress;       // offset 32
+// (The @7.0 layout with a string deviceType and safe_union id, which this
+// code was originally written for, is not understood by a @6.0 HAL.)
 typedef struct {
-  GBinderHidlString deviceType;
-  guint32 discriminator;
+  guint32 device;
+  guint8 address[8];
   guint32 padding;
-  GBinderHidlString id;
+  GBinderHidlString busAddress;
+  GBinderHidlString rSubmixAddress;
 } DeviceAddress;
 
+G_STATIC_ASSERT(sizeof(DeviceAddress) == 48);
+
 static const GBinderWriterField device_address_fields[] = {
-    GBINDER_WRITER_FIELD_HIDL_STRING(DeviceAddress, deviceType),
-    GBINDER_WRITER_FIELD_HIDL_STRING(DeviceAddress, id),
+    GBINDER_WRITER_FIELD_HIDL_STRING(DeviceAddress, busAddress),
+    GBINDER_WRITER_FIELD_HIDL_STRING(DeviceAddress, rSubmixAddress),
     GBINDER_WRITER_FIELD_END()};
 
 static const GBinderWriterType device_address_type = {
     GBINDER_WRITER_STRUCT_NAME_AND_SIZE(DeviceAddress), device_address_fields};
 
 static gboolean audio_hal_set_connected_state(AudioHalState *state,
-                                              const char *device_type,
+                                              guint32 device_type,
                                               const char *address,
                                               gboolean connected) {
-  GINFO("setConnectedState with device_type=%s, address=%s, %s", device_type,
-        address, connected ? "connected" : "disconnected");
+  GINFO("setConnectedState with device_type=0x%08x, address=%s, %s",
+        device_type, address, connected ? "connected" : "disconnected");
 
   GBinderLocalRequest *req = gbinder_client_new_request(state->device_client);
   GBinderWriter writer;
 
   gbinder_local_request_init_writer(req, &writer);
 
+  // As in Android's HidlUtils::deviceAddressFromHal, the MAC is only carried
+  // for A2DP devices; for SCO the HAL just receives the device type, which it
+  // turns into set_parameters("connect=<device>").
   DeviceAddress *addr = gbinder_writer_new0(&writer, DeviceAddress);
-  addr->deviceType.data.str = (char *)device_type;
-  addr->deviceType.len = strlen(device_type);
-  addr->deviceType.owns_buffer = FALSE;
-
-  addr->discriminator = 0; // id variant
-  addr->padding = 0;
-
-  addr->id.data.str = (char *)address;
-  addr->id.len = strlen(address);
-  addr->id.owns_buffer = FALSE;
+  addr->device = device_type;
+  addr->busAddress.data.str = "";
+  addr->busAddress.len = 0;
+  addr->busAddress.owns_buffer = FALSE;
+  addr->rSubmixAddress.data.str = "";
+  addr->rSubmixAddress.len = 0;
+  addr->rSubmixAddress.owns_buffer = FALSE;
 
   gbinder_writer_append_struct(&writer, addr, &device_address_type, NULL);
   gbinder_writer_append_bool(&writer, connected);
@@ -76,28 +87,37 @@ static gboolean audio_hal_set_connected_state(AudioHalState *state,
   // Send transaction
   int status = 0;
   GBinderRemoteReply *reply = gbinder_client_transact_sync_reply(
-      state->device_client, IDEVICE_SET_CONNECTED_STATE, req, NULL);
+      state->device_client, IDEVICE_SET_CONNECTED_STATE, req, &status);
 
   gbinder_local_request_unref(req);
 
   if (status != GBINDER_STATUS_OK || !reply) {
-    GWARN("setConnectedState transact failed for %s", device_type);
+    GWARN("setConnectedState transact failed for 0x%08x (status %d)",
+          device_type, status);
     if (reply)
       gbinder_remote_reply_unref(reply);
     return FALSE;
   }
 
-  // Read result code
+  // HIDL reply: transport status (int32), then the Result return value
   GBinderReader reader;
   gbinder_remote_reply_init_reader(reply, &reader);
 
-  gint32 result = 0;
-  gbinder_reader_read_int32(&reader, &result);
+  gint32 hidl_status = -1;
+  gint32 result = -1;
+  if (!gbinder_reader_read_int32(&reader, &hidl_status) || hidl_status != 0 ||
+      !gbinder_reader_read_int32(&reader, &result)) {
+    GERR("Bad setConnectedState reply for 0x%08x (hidl status %d)",
+         device_type, hidl_status);
+    gbinder_remote_reply_unref(reply);
+    return FALSE;
+  }
 
   gbinder_remote_reply_unref(reply);
 
   if (result != RESULT_OK) {
-    GERR("Failed to read result from setConnectedState reply");
+    GERR("setConnectedState for 0x%08x returned Result %d", device_type,
+         result);
   }
   return result == RESULT_OK;
 }
@@ -166,12 +186,12 @@ static gboolean audio_hal_notify_connected_worker(const char *address,
     return FALSE;
   }
 
-  if (!audio_hal_set_connected_state(state, AUDIO_DEVICE_TYPE_OUT, address,
+  if (!audio_hal_set_connected_state(state, AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET, address,
                                      connected)) {
     return FALSE;
   }
 
-  if (!audio_hal_set_connected_state(state, AUDIO_DEVICE_TYPE_IN, address,
+  if (!audio_hal_set_connected_state(state, AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET, address,
                                      connected)) {
     return FALSE;
   }
